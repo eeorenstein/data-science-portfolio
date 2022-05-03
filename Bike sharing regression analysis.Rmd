@@ -1,0 +1,290 @@
+---
+title: "STAT 5302 Final (practice)"
+author: "Elliot Orenstein"
+date: "05/13/2020"
+output:
+  word_document: default
+---
+
+## Introduction
+
+We have been asked to analyze a dataset containing the daily number of bikes shared in London from 2015 to 2016 and to focus on two main objectives. The first is to determine which variables among those provided in the dataset contribute most to increasing the daily number of bikes shared. In addition to the number of bikes shared daily, the dataset contains daily information in the form of seven numerical and categorical variables. The numerical variables are temperature, feels-like temperature (both measured in Celcius), humidity (percentage), and wind speed (measured in km/hr). The categorical variables are weekend (1 for weekend), bank holiday (1 for bank holiday), and season (0 for spring, 1 for summer, 2 for fall, 3 for winter).
+
+Second, the analysis will uncover which model(s) can best help in predicting daily bikes shared for future dates. Given the seven variables provided, there will be many predictive models from which to choose. This analysis will approach this objective systematically, using domain knowledge as well as statistical methods and guidelines to find a smaller subset from which to choose.
+
+## Methods
+
+The analysis used many statistical methods to help in achieving these two main objectives. A key tool used in determining which variables contribute most to the daily number of bikes shared were pairwise scatterplots and the correlation matrix. Scatterplots of the predictors versus the response can indicate if and how the response changes as the predictor varies. Whether a strong relationship exists between a predictor and the response is important in gaining a preliminary understanding of a predictor's significance.
+
+If a relationship appears to exist, these scatterplots can also indicate whether it appears linear, quadratic, logarithmic, or otherwise. This can be of great help in finding a well-fitting predicitve model. The scatterplots between predictors are also important as they can indicate instances of collinearity. Collinearity between predictors will lead to inflated variances, which can interfere with standard errors and therefore with the p-values and thus the significance of predictors in a model. The correlation matrix serves a similar purpose as the correlation matrix in that it helps determine the relationship between the predictors and response and among the predictors themselves. This puts a numeric value to the linear relationship, which can help quantify this in a way that pairwise scatterplots cannot. However, correlations only indicate linear relationships. Therefore, using both is essential to obtaining a full picture on the underlying relationships in the data.
+
+In addition to these tools, which are used throughout the analysis, the following methods were used primarily in finding and choosing a predictive model. An analysis of variance (ANOVA) test was used as the primary method for determining the goodness of fit of the models. ANOVA allowed us to find a subset of models that provide significantly better fits than their counterparts. Because of the marginality principle ANOVA relies on, it is especially useful in determining which interaction effects are significant, which was key to this analysis as potential models contained many interaction effects due to the three categorical variables. After finding a subset of models, summary outputs of the linear models displayed important information such as adjusted R squared as well as estimated values, p-values, and standard errors of the predictors' coefficients. These were used in interpreting as well as determining the significance and contributions of the predictors in estimating the response as well as for constructing an estimate or prediction of the response for unseen data. Given that we were not provided a test set, we used k-fold cross validation to determine how well the chosen model(s) generalized to new data. The resulting test mean square error (MSE) of a model is a good sign of its predictive accuracy. Following this, diagnostic tools such as histograms of the residuals, qq-plots, standardized residual plots, and Cook's distance plots were employed to determine whether the assumptions of the errors held under the model. If not, a transformation of the predictors and/or response may be necessary. Given that the response is strictly positive, the Box-Cox method could be used to determine an optimal transformation of the response.
+
+## Results
+
+To gain a better understanding of the data, we started by performing exploratory data analysis and data cleansing. 
+
+```{r, echo=FALSE}
+library(car)
+bikesharing14 <- read.table('bikesharing14.txt')
+#load("bikesharing14")
+#bikesharing14 = read.table(C:\Users\ellio\OneDrive\Documents\Courses\STAT_5302\bikesharing14.txt)
+summary(bikesharing14)
+```
+
+Because holiday, weekend, and season are categorical variables, we set them as factors with their references as non-holiday, non-weekend, and spring, respectively. Examining the summary output of the dataset, we see that the number of bikes, temperature, humidity, and wind speed all have a fairly wide range. This could be a sign that all or some may benefit from a logarithmic transformation. Feels-like also has a wide range but has negative values, as evidenced by its negative minimum value, so it cannot be log transformed. Also, while season and weekend are fairly well-disbursed, there are only 13 bank holidays. This may cause issues in generating higher-level interactions. Because holiday and weekend cannot both be ones for the same day, they could be combined into a new variable, which we called day type. However, we decided to keep them as separate as it led to a more straightforward interpretation.
+
+```{r, echo=FALSE}
+bikesharing14$holiday = as.factor(bikesharing14$holiday)
+bikesharing14$season = as.factor(bikesharing14$season)
+bikesharing14$weekend = as.factor(bikesharing14$weekend)
+```
+
+We can see some patterns between categorical and numerical data, but it is difficult to discern from these plots, so we will supplement them with domain knowledge. Below, we have focused in on some of these relationships in the scatterplots.
+
+```{r, echo=FALSE}
+par(mfrow=c(2,3))
+plot(N_bikes ~ season, data=bikesharing14)
+plot(temperature ~ season, data=bikesharing14)
+plot(feels_like ~ season, data=bikesharing14)
+plot(humidity ~ season, data=bikesharing14)
+plot(wind_speed ~ season, data=bikesharing14)
+```
+
+For example, we can see that temperature ranges are much different depending on the season, which makes sense given our knowledge about weather in London. We see the same pattern between feels-like and season. There is some evidence from the box plot that the number of bikes is influenced by the season and a weaker relationship between season and humidity and nearly no relationship with wind speed. 
+
+The relationships between weekend and holiday with the numerical variables provides an initial perspective into the impact these categorical variables have on the number of bikes and examples of potential collinearity. There is no reason to believe these time-based categories would correlate with weather-related variables but we examined the plots to verify this assumption.
+
+Focusing now on the numerical data, we see that the number of bikes has strong positive relationships with temperature and feels-like, a negative relationship with humidity, and a weaker negative relationship with wind speed. There are also very strong correlations between the predictors, especially temperature and feels like, which have a near one-to-one linear relationship (0.992 estimated correlation).
+
+```{r, echo=FALSE}
+pairs(data.frame(bikesharing14$N_bikes, bikesharing14$temperature, bikesharing14$feels_like, bikesharing14$humidity, bikesharing14$wind_speed))
+```
+
+```{r, echo=FALSE}
+cor(data.frame(bikesharing14$N_bikes, bikesharing14$temperature, bikesharing14$feels_like, bikesharing14$humidity, bikesharing14$wind_speed))
+```
+
+In summary, from this preliminary data exploration, we found that temperature, feels-like, season, and weekend appear to have the strongest relationship with the daily number of bikes shared. Correlations between any two of temperature, feels-like, and season are strong enough to potentially create an issue with collinearity. Therefore, we considered models with only one of these predictors. Lastly, we may need to consider a log transformation of our response or some of our predictors to abide by the assumptions on the errors.
+
+Before running an ANOVA to determine the models with the best goodness-of-fit, we consider the distribution of the data. 
+
+```{r, echo=FALSE}
+hist(bikesharing14$N_bikes, nclass=50)
+```
+
+The number of bikes shared daily is count data (non-negative, whole numbers over a fixed time), which could indicate it follows a Poisson distribution. With larger means, a Poisson distribution begins to approximate a Normal distribution. The histogram of the number of bikes indicates that the distribution may be normal although it is slightly asymmetical. Because of this, we will assume a (normal) multiple linear regression for now but will consider a poisson linear regression model if necessary. Additionally, there is no indication contextually or in the data that the errors are correlated. For now, our covariance matrix will be $\hat \sigma^2 I$.
+
+We then ran an ANOVA on model 1, where model 1 is the largest possible model of temperature, wind speed, weekend, holiday, and humidity.
+
+```{r, echo=FALSE}
+m1 = lm(N_bikes ~ temperature + wind_speed + weekend + holiday + humidity + temperature:weekend + temperature:holiday + wind_speed:weekend + wind_speed:holiday + humidity:weekend + humidity:holiday, data=bikesharing14)
+Anova(m1, type = 'II')
+```
+
+```{r, echo=FALSE}
+m11 = glm(N_bikes ~ temperature + wind_speed + weekend + holiday + humidity + wind_speed:weekend + wind_speed:holiday + humidity:weekend + humidity:holiday, data=bikesharing14)
+
+m12 = glm(N_bikes ~ temperature + wind_speed + weekend + holiday + humidity + temperature:weekend + temperature:holiday + humidity:weekend + humidity:holiday, data=bikesharing14)
+
+m13 = glm(N_bikes ~ temperature + wind_speed + weekend + holiday + humidity + temperature:holiday + wind_speed:holiday + humidity:holiday, data=bikesharing14)
+
+#m141 = glm(N_bikes ~ log(temperature) + log(wind_speed) + weekend + holiday + log(humidity) + log(temperature):weekend + log(wind_speed):weekend + log(humidity):weekend, data=bikesharing14)
+
+#m142 = glm(N_bikes ~ temperature + wind_speed + weekend + holiday + humidity + temperature:weekend + wind_speed:weekend + humidity:weekend, data=bikesharing14, family = 'poisson')
+
+m14 = glm(N_bikes ~ temperature + wind_speed + weekend + holiday + humidity + temperature:weekend + wind_speed:weekend + humidity:weekend, data=bikesharing14)
+
+m15 = glm(N_bikes ~ temperature + wind_speed + weekend + holiday + humidity + temperature:weekend + temperature:holiday + wind_speed:weekend + wind_speed:holiday, data=bikesharing14)
+
+# including everything
+m16 = glm(N_bikes ~ temperature + wind_speed + weekend + holiday + humidity + temperature:weekend + temperature:holiday + wind_speed:weekend + wind_speed:holiday + humidity:weekend + humidity:holiday, data=bikesharing14)
+```
+
+At the significance level of $\alpha = 0.05$, the ANOVA resulted in six models with significant F-tests. These models -- which we labeled models 11-16, from the top of the ANOVA table down -- are the alternate hypotheses of the first six rows of the table (the remaining two are identical to the sixth). Model 11, for example, includes temperature but not its interactions. Model 16 is the full model, equivalent to model 1. 
+
+Performing an ANOVA on model 2, where temperature is replaced with feels-like, resulted in nearly identical results.
+
+```{r, echo=FALSE}
+m2 = lm(N_bikes ~ feels_like + wind_speed + weekend + holiday + humidity + feels_like:weekend + feels_like:holiday + wind_speed:weekend + wind_speed:holiday + humidity:weekend + humidity:holiday, data=bikesharing14)
+Anova(m2, type = 'II')
+```
+
+```{r, echo=FALSE}
+m21 = glm(N_bikes ~ feels_like + wind_speed + weekend + holiday + humidity + wind_speed:weekend + wind_speed:holiday + humidity:weekend + humidity:holiday, data=bikesharing14)
+
+m211 = glm(N_bikes ~ feels_like + wind_speed + weekend + holiday + humidity + wind_speed:weekend + wind_speed:holiday + humidity:weekend + humidity:holiday, data=bikesharing14, family = 'poisson')
+
+m22 = glm(N_bikes ~ feels_like + wind_speed + weekend + holiday + humidity + feels_like:weekend + feels_like:holiday + humidity:weekend + humidity:holiday, data=bikesharing14)
+
+m23 = glm(N_bikes ~ feels_like + wind_speed + weekend + holiday + humidity + feels_like:holiday + wind_speed:holiday + humidity:holiday, data=bikesharing14)
+
+m24 = glm(N_bikes ~ feels_like + wind_speed + weekend + holiday + humidity + feels_like:weekend + wind_speed:weekend + humidity:weekend, data=bikesharing14)
+
+#m241 = glm(N_bikes ~ feels_like + wind_speed + weekend + holiday + humidity + feels_like:weekend + wind_speed:weekend + humidity:weekend, data=bikesharing14, family = 'poisson')
+
+m25 = glm(N_bikes ~ feels_like + wind_speed + weekend + holiday + humidity + feels_like:weekend + feels_like:holiday + wind_speed:weekend + wind_speed:holiday, data=bikesharing14)
+
+# including everything
+m26 = glm(N_bikes ~ feels_like + wind_speed + weekend + holiday + humidity + feels_like:weekend + feels_like:holiday + wind_speed:weekend + wind_speed:holiday + humidity:weekend + humidity:holiday, data=bikesharing14)
+
+```
+
+At the significance level of $\alpha = 0.05$, the ANOVA resulted in six models with significant F-tests. These models were labeled 21-26, from the top of the ANOVA table down.
+
+Lastly, an ANOVA was performed on model 3, which uses season in place of temperature or feels-like. Because season is a factor, it will have additional interactions to consider compared to models 1 and 2. 
+
+```{r, echo=FALSE}
+m3 = lm(N_bikes ~ season + wind_speed + weekend + holiday + humidity + season:weekend + season:holiday + wind_speed:weekend + wind_speed:holiday + humidity:weekend + humidity:holiday + season:weekend:wind_speed + season:weekend:humidity + season:holiday:wind_speed + season:holiday:humidity, data=bikesharing14)
+Anova(m3, type = 'II')
+```
+
+```{r, echo=FALSE}
+m31 = glm(N_bikes ~ season + wind_speed + weekend + holiday + humidity + wind_speed:weekend + wind_speed:holiday + humidity:weekend + humidity:holiday, data=bikesharing14)
+
+m32 = glm(N_bikes ~ season + wind_speed + weekend + holiday + humidity + season:weekend + season:holiday + humidity:weekend + humidity:holiday + season:weekend:humidity + season:holiday:humidity, data=bikesharing14)
+
+m33 = glm(N_bikes ~ season + wind_speed + weekend + holiday + humidity + season:holiday + wind_speed:holiday + humidity:holiday + season:holiday:wind_speed + season:holiday:humidity, data=bikesharing14)
+
+m34 = glm(N_bikes ~ season + wind_speed + weekend + holiday + humidity + season:weekend + wind_speed:weekend + humidity:weekend + season:weekend:wind_speed + season:weekend:humidity, data=bikesharing14)
+
+m35 = glm(N_bikes ~ season + wind_speed + weekend + holiday + humidity + season:weekend + season:holiday + wind_speed:weekend + wind_speed:holiday + season:weekend:wind_speed + season:holiday:wind_speed, data=bikesharing14)
+
+m36 = glm(N_bikes ~ season + wind_speed + weekend + holiday + humidity + season:weekend + season:holiday + wind_speed:weekend + wind_speed:holiday + humidity:weekend + humidity:holiday + season:weekend:humidity + season:holiday:wind_speed + season:holiday:humidity, data=bikesharing14)
+
+m37 = glm(N_bikes ~ season + wind_speed + weekend + holiday + humidity + season:weekend + season:holiday + wind_speed:weekend + wind_speed:holiday + humidity:weekend + humidity:holiday + season:weekend:wind_speed + season:holiday:wind_speed + season:holiday:humidity, data=bikesharing14)
+```
+
+At the significance level of $\alpha = 0.05$, the ANOVA resulted in seven models with significant F-tests. These models were labeled 31-37, from the top of the ANOVA table down.
+
+Based on each model's R squared as the criteria for goodness of fit, models 11, 14, 16, 21, 24, and 26 were the top candidates with adjusted R squared values all over 0.78. Adjusted R squared takes into account generalizability by penalizing models with more parameters but with them so close in value, we used an additional criteria, estimated test MSE generated by k-fold cross validation, on all of the models from the three ANOVAs to help aid in model selection. 
+
+```{r, echo=FALSE}
+library(boot)
+# CV errors for model 1's
+cv.error_m11 = cv.glm(bikesharing14,m11,K=5)$delta 
+names(cv.error_m11) = c('CV error m11', 'Adjusted error m11') 
+
+cv.error_m12 = cv.glm(bikesharing14,m12,K=5)$delta 
+names(cv.error_m12) = c('CV error m12', 'Adjusted error m12') 
+
+cv.error_m13 = cv.glm(bikesharing14,m13,K=5)$delta 
+names(cv.error_m13) = c('CV error m13', 'Adjusted error m13') 
+
+cv.error_m14 = cv.glm(bikesharing14,m14,K=5)$delta 
+names(cv.error_m14) = c('CV error m14', 'Adjusted error m14') 
+
+cv.error_m15 = cv.glm(bikesharing14,m15,K=5)$delta 
+names(cv.error_m15) = c('CV error m15', 'Adjusted error m15') 
+
+cv.error_m16 = cv.glm(bikesharing14,m16,K=5)$delta 
+names(cv.error_m16) = c('CV error m16', 'Adjusted error m16') 
+
+#cv.error_m18 = cv.glm(bikesharing14,m18,K=5)$delta 
+#names(cv.error_m18) = c('CV error m18', 'Adjusted error m18') 
+#cv.error_m18
+
+# CV errors for model 2's
+cv.error_m21 = cv.glm(bikesharing14,m21,K=5)$delta 
+names(cv.error_m21) = c('CV error m21', 'Adjusted error m21') 
+
+#cv.error_m211 = cv.glm(bikesharing14,m211,K=5)$delta 
+#names(cv.error_m211) = c('CV error m211', 'Adjusted error m211') 
+#cv.error_m211
+
+cv.error_m22 = cv.glm(bikesharing14,m22,K=5)$delta 
+names(cv.error_m22) = c('CV error m22', 'Adjusted error m22') 
+
+cv.error_m23 = cv.glm(bikesharing14,m23,K=5)$delta 
+names(cv.error_m23) = c('CV error m23', 'Adjusted error m23') 
+
+cv.error_m24 = cv.glm(bikesharing14,m24,K=5)$delta 
+names(cv.error_m24) = c('CV error m24', 'Adjusted error m24') 
+
+#cv.error_m241 = cv.glm(bikesharing14,m241,K=5)$delta 
+#names(cv.error_m241) = c('CV error m241', 'Adjusted error m241') 
+#cv.error_m241
+
+cv.error_m25 = cv.glm(bikesharing14,m25,K=5)$delta 
+names(cv.error_m25) = c('CV error m25', 'Adjusted error m25') 
+
+cv.error_m26 = cv.glm(bikesharing14,m26,K=5)$delta 
+names(cv.error_m26) = c('CV error m26', 'Adjusted error m26') 
+
+# CV's for model 3's
+cv.error_m31 = cv.glm(bikesharing14,m31,K=5)$delta 
+names(cv.error_m31) = c('CV error m31', 'Adjusted error m31') 
+
+cv.error_m32 = cv.glm(bikesharing14,m32,K=5)$delta 
+names(cv.error_m32) = c('CV error m32', 'Adjusted error m32') 
+
+cv.error_m33 = cv.glm(bikesharing14,m33,K=5)$delta 
+names(cv.error_m33) = c('CV error m33', 'Adjusted error m33') 
+
+cv.error_m34 = cv.glm(bikesharing14,m34,K=5)$delta 
+names(cv.error_m34) = c('CV error m34', 'Adjusted error m34') 
+
+cv.error_m35 = cv.glm(bikesharing14,m35,K=5)$delta 
+names(cv.error_m35) = c('CV error m35', 'Adjusted error m35') 
+
+cv.error_m36 = cv.glm(bikesharing14,m36,K=5)$delta 
+names(cv.error_m36) = c('CV error m36', 'Adjusted error m36') 
+
+cv.error_m37 = cv.glm(bikesharing14,m37,K=5)$delta 
+names(cv.error_m37) = c('CV error m37', 'Adjusted error m37') 
+
+top_models_cv = c(cv.error_m11[2], cv.error_m12[2], cv.error_m13[2], cv.error_m14[2], cv.error_m15[2], cv.error_m16[2], cv.error_m21[2], cv.error_m22[2], cv.error_m23[2], cv.error_m24[2], cv.error_m25[2], cv.error_m26[2], cv.error_m31[2], cv.error_m32[2], cv.error_m33[2], cv.error_m34[2], cv.error_m35[2], cv.error_m36[2], cv.error_m37[2])
+top_models_cv
+```
+
+Model 14 had the lowest estimated test MSE so we chose it as our model. To determine whether the assumptions of multiple linear regression held for model 14, we ran diagnostics, which can be found below on the left. Model 14's residual plots validate the assumptions of the errors as they are centered around zero, have no trend, and maintain constant variance. The qq-plot deviates slightly, most significantly at the left tail. The Cook's distance plot does not show any data is influential, so there is no evidence to remove certain points from the dataset. If in fact the errors are not normally distributed, this would affect inference but not the estimates of the coefficients and their standard errors. Applying a log transformation to temperature and wind speed, as seen on the right, results in a better-fitting qq-plot but introduces a slight trend and non-zero mean at the tails. As mentioned previously, Poisson regression was another consideration. However, testing various Poisson models, including one identical to model 14, led to worse estimated test MSE and diagnostics that violated the assumptions on the error. 
+
+```{r, echo=FALSE}
+par(mfrow=c(2,2))
+plot(m14)
+```
+
+```{r, echo=FALSE}
+m141 = lm(N_bikes ~ log(temperature) + log(wind_speed) + weekend + holiday + humidity + log(temperature):weekend + log(wind_speed):weekend + humidity:weekend, data=bikesharing14)
+par(mfrow=c(2,2))
+plot(m141)
+#summary(m141)
+```
+
+Lastly, we considered a transformation of the response. Using Box-Cox, we found the optimal transformation to be $\lambda = 1$, or the identity transformation. 
+
+```{r, echo=FALSE}
+MASS::boxcox(m14, plotit=TRUE)
+```
+
+As a result, model 14 was the ultimate choice to predict daily bikes shared. The summary output is below.
+
+```{r, echo=FALSE}
+m14 = lm(N_bikes ~ temperature + wind_speed + weekend + holiday + humidity + temperature:weekend + wind_speed:weekend + humidity:weekend, data=bikesharing14)
+m16 = lm(N_bikes ~ temperature + wind_speed + weekend + holiday + humidity + temperature:weekend + temperature:holiday + wind_speed:weekend + wind_speed:holiday + humidity:weekend + humidity:holiday, data=bikesharing14)
+summary(m14)
+```
+
+As compared to model 16, which is the same as model 14 but also includes interaction effects of holiday, model 14 has a more clear interpretation. None of the interaction effects with holiday are significant in model 16 whereas all but the main effect of weekend are significant at $\alpha=0.05$ in model 14. It is unsurprising that these interactions would not be significant in model 16 given that so few data points (13 of the 500 samples) are bank holidays. Interpreting model 14 shows that bank holidays result in approximately 8,974 fewer bikes shared that day compared to non-holidays, adjusting for all other predictors. Holiday, followed by weekend and temperature have the most impact on bike sharing numbers. However, weekend is not significant at $\alpha = 0.05$ so we cannot say definitively that it is different from zero. Therefore, we can confidently claim that, under this model, that holiday and temperature have the greatest impact on the number of bikes shared (for a one unit change or compared to its reference category for factors).
+
+```{r, echo=FALSE}
+#m14p = glm(N_bikes ~ temperature + wind_speed + weekend + holiday + humidity + temperature:weekend + wind_speed:weekend + humidity:weekend, data=bikesharing14, family = 'quasipoisson')
+#m14p = glm(N_bikes ~ temperature + humidity + weekend + temperature:weekend + humidity:weekend, data=bikesharing14, family = 'quasipoisson')
+#par(mfrow=c(2,2))
+#phi = sum(residuals(m14p, type='pearson')^2)/df.residual(m14p)
+#plot(m14p)
+```
+
+## Discussion
+
+The analysis on the daily bike sharing data had two main objectives. First was to find the variables that contributed most to the number of bikes shared. Preliminary data exploration hinted that some variables such as temperature contributed more than others such as wind speed. The second objective was to choose the best model(s) to predict bike sharing in the future. Using ANOVA and k-fold cross-validation, we determined the best model to be model 14. The analysis brought up an interesting question regarding the first objective. Simply looking at the data to determine the variables that contribute the most to the response resulted in a different set of variables than we ultimately ended with in model 14. This was due to the deliberate choice to avoid issues of collinearity. Ultimately, answering the question of which variables contribute the most comes down to the context. Since the analysis concluded in finding a predictive model, the first objective can be achieved in a less open-ended manner by examining it in the context of the second objective.
+
+Another question that arose from this analysis was how to interpret the diagnostic tests of model 14. While the second objective is focused more on prediction than interpretation, the model could be more useful if we could more confidently believe in its inference. This could help more confidently address the first objective, again depending on how it is framed. In summary, gaining access to more data could help the dataset asymptotically approach normality and therefore provide more confidence in its inference. 
+
+Future analyses that could further improve the predictive ability of our model could be constructed if we had more predictors. This is not guaranteed to help as it depends on the predictors. Some examples of potentially useful predictors would be whether a promotion or special sale was occurring for the service, weather forecasts, unemployment rates, traffic conditions or road closures, and the supply of bikes available through the service. Although some of these may correlate with existing predictors, they could provide a stronger relationship with the response than those currently present. 
+
+
+
+
+
+
